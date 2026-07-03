@@ -1098,12 +1098,15 @@ function pointAtOrBefore(points, latestDate, days) {
 }
 
 function shiftDate(isoDate, days) {
-  const [y, m, d] = String(isoDate).split("-").map(Number);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
-    return null;
-  }
-  const base = Date.UTC(y, m - 1, d) + days * 24 * 60 * 60 * 1000;
-  const date = new Date(base);
+  const raw = String(isoDate);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!dateOnly) return null;
+  const y = Number(dateOnly[1]);
+  const m = Number(dateOnly[2]);
+  const d = Number(dateOnly[3]);
+  const baseMs = Date.UTC(y, m - 1, d);
+  if (new Date(baseMs).toISOString().slice(0, 10) !== raw) return null;
+  const date = new Date(baseMs + days * 24 * 60 * 60 * 1000);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
 }
@@ -1655,3 +1658,5 @@ export function overlayArtifactEndpoints(staticData, live) {
 }
 
 export { OPERATIONAL_KINDS };
+
+export const __test = { shiftDate };

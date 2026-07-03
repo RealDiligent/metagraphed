@@ -7,6 +7,7 @@ import {
   formatTrajectory,
   loadSubnetTrajectory,
   LEADERBOARD_BOARDS,
+  __test as healthServingTest,
 } from "../src/health-serving.mjs";
 import { writeSubnetSnapshot } from "../src/health-prober.mjs";
 import { handleRequest, handleScheduled } from "../workers/api.mjs";
@@ -701,6 +702,26 @@ describe("formatTrajectory", () => {
     });
     assert.equal(out.deltas["7d"], null);
     assert.equal(out.deltas["30d"], null);
+  });
+  test("returns null deltas when latest snapshot_date is calendar-invalid", () => {
+    for (const snapshot_date of ["2026-13-40", "2026-02-31"]) {
+      const out = formatTrajectory({
+        netuid: 7,
+        rows: [
+          {
+            snapshot_date,
+            completeness_score: 50,
+            surface_count: 1,
+            endpoint_count: 1,
+          },
+        ],
+      });
+      assert.equal(out.deltas["7d"], null, snapshot_date);
+      assert.equal(out.deltas["30d"], null, snapshot_date);
+    }
+  });
+  test("shiftDate returns null when the day offset overflows Date range", () => {
+    assert.equal(healthServingTest.shiftDate("2026-06-01", 1e8), null);
   });
   test("coerces D1 numeric-string snapshot cells to schema types", () => {
     const out = formatTrajectory({
