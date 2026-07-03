@@ -146,7 +146,10 @@ test("formatExtrinsic maps a D1 row to an API extrinsic (ISO time, bool success)
 
 test("formatExtrinsic rejects blank chain-position cells to null", () => {
   assert.equal(formatExtrinsic({ block_number: "" }).block_number, null);
-  assert.equal(formatExtrinsic({ extrinsic_index: "   " }).extrinsic_index, null);
+  assert.equal(
+    formatExtrinsic({ extrinsic_index: "   " }).extrinsic_index,
+    null,
+  );
 });
 
 test("formatExtrinsic drops an out-of-range observed_at instead of throwing", () => {
