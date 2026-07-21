@@ -1056,7 +1056,8 @@ describe("handleMcpRequest — rate limiter success + content-length guard", () 
   });
 
   test("a request whose content-length exceeds the cap is rejected with 413", async () => {
-    // contentLength > MAX_MCP_BODY_BYTES short-circuits before reading the body.
+    // Declared decimal Content-Length > MAX_MCP_BODY_BYTES short-circuits
+    // before any stream read.
     const request = new Request(MCP_URL, {
       method: "POST",
       headers: {
@@ -1069,6 +1070,97 @@ describe("handleMcpRequest — rate limiter success + content-length guard", () 
     assert.equal(response.status, 413);
     const body = await response.json();
     assert.equal(body.error.code, -32600);
+  });
+
+  test("a non-decimal Content-Length header is rejected with 400", async () => {
+    // Covers /^\d+$/ reject arm (Number("1.5") / Number("abc") used to skip the
+    // pre-read guard and fall through to unbounded request.text()).
+    for (const bad of ["abc", "1.5", "1e3", "0x10", "-1"]) {
+      const request = new Request(MCP_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": bad,
+        },
+        body: "{}",
+      });
+      const response = await handleMcpRequest(request, {}, makeDeps());
+      assert.equal(
+        response.status,
+        400,
+        `expected 400 for Content-Length ${bad}`,
+      );
+      const body = await response.json();
+      assert.equal(body.error.code, -32600);
+      assert.match(body.error.message, /Invalid Content-Length/i);
+    }
+  });
+
+  test("a chunked oversized body without Content-Length is rejected mid-stream", async () => {
+    // Missing Content-Length must not bypass the cap: stream past MAX and
+    // cancel before the full body is buffered.
+    const encoder = new TextEncoder();
+    const oversized = "x".repeat(64 * 1024 + 64);
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(oversized.slice(0, 32 * 1024)));
+        controller.enqueue(encoder.encode(oversized.slice(32 * 1024)));
+        controller.close();
+      },
+    });
+    const request = new Request(MCP_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    });
+    assert.equal(request.headers.get("content-length"), null);
+    const response = await handleMcpRequest(request, {}, makeDeps());
+    assert.equal(response.status, 413);
+    const body = await response.json();
+    assert.equal(body.error.code, -32600);
+    assert.match(body.error.message, /too large/i);
+  });
+
+  test("a POST with Content-Length 0 and no body yields a JSON parse error", async () => {
+    // Covers readLimitedMcpBody's !request.body arm (empty POST, no stream).
+    const request = new Request(MCP_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "0",
+      },
+    });
+    assert.equal(request.body, null);
+    const response = await handleMcpRequest(request, {}, makeDeps());
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error.code, -32700);
+  });
+
+  test("a valid streamed body without Content-Length is accepted", async () => {
+    const payload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" });
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        // Two chunks so the accumulate loop runs more than once under the cap.
+        const bytes = encoder.encode(payload);
+        controller.enqueue(bytes.slice(0, 8));
+        controller.enqueue(bytes.slice(8));
+        controller.close();
+      },
+    });
+    const request = new Request(MCP_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    });
+    assert.equal(request.headers.get("content-length"), null);
+    const response = await handleMcpRequest(request, {}, makeDeps());
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.result, {});
   });
 });
 
