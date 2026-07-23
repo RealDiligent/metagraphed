@@ -379,6 +379,12 @@ describe("redactedCaptureJson", () => {
     assert.equal(redactedCaptureJson(undefined), undefined);
     // JSON.stringify throws on BigInt -- the capture is dropped, not thrown.
     assert.equal(redactedCaptureJson({ big: 1n }), undefined);
+    // JSON.stringify returns undefined (not a string) for a bare function --
+    // also a dropped capture rather than a "undefined" string on the wire.
+    assert.equal(
+      redactedCaptureJson(() => {}),
+      undefined,
+    );
   });
 
   test("a cyclic value is terminated by the depth cap, never thrown on", () => {
@@ -462,6 +468,23 @@ describe("recordMcpAnalyticsEvent", () => {
       { fetch: fakeFetch({ onCall: (call) => calls.push(call) }) },
     );
     assert.equal(calls[0].body.event, MCP_INITIALIZE_EVENT_NAME);
+  });
+
+  test("returns false for a malformed event without issuing a capture", async () => {
+    let calls = 0;
+    const recorded = await recordMcpAnalyticsEvent(
+      { [POSTHOG_PROJECT_TOKEN_ENV]: "phc_token" },
+      { type: "no_such_type" },
+      {
+        fetch: fakeFetch({
+          onCall: () => {
+            calls += 1;
+          },
+        }),
+      },
+    );
+    assert.equal(recorded, false);
+    assert.equal(calls, 0);
   });
 
   test("is a safe no-op when unconfigured, and swallows transport failures", async () => {

@@ -376,13 +376,25 @@ describe("PostHog-native MCP analytics ($mcp_*)", () => {
 
   test("an analytics recorder failure changes nothing about the tool result", async () => {
     const baseline = await callMcp(toolCall(TOOL), {});
-    const payload = await callMcp(toolCall(TOOL), CONFIGURED_ENV, {
+    // Synchronous throw (caught by the scheduling wrapper's try) and async
+    // rejection (absorbed by the scheduled promise's own catch) both stay
+    // invisible to the caller.
+    const throwing = await callMcp(toolCall(TOOL), CONFIGURED_ENV, {
       executionCtx: fakeExecutionCtx(),
       recordUsageEvent: recorder().recordUsageEvent,
       recordMcpAnalyticsEvent: () => {
         throw new Error("analytics exploded");
       },
     });
-    assert.deepEqual(payload, baseline);
+    assert.deepEqual(throwing, baseline);
+
+    const rejectingCtx = fakeExecutionCtx();
+    const rejecting = await callMcp(toolCall(TOOL), CONFIGURED_ENV, {
+      executionCtx: rejectingCtx,
+      recordUsageEvent: recorder().recordUsageEvent,
+      recordMcpAnalyticsEvent: () => Promise.reject(new Error("posthog down")),
+    });
+    await Promise.all(rejectingCtx.scheduled);
+    assert.deepEqual(rejecting, baseline);
   });
 });
